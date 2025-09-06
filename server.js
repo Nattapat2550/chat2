@@ -144,11 +144,13 @@ app.post('/api/send', async (req, res) => {
 
     res.json({ ok: true, user: userMsg, assistant: assistantMsg });
 
-    // Background AI
+    // Background AI with retry
     (async () => {
       try {
         const last = await Message.find({ channelId }).sort({ createdAt: -1 }).limit(10).lean();
-        const convo = last.reverse().map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text || (m.imageId ? '[image]' : '')}`).join('\n');
+        const convo = last.reverse()
+          .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text || (m.imageId ? '[image]' : '')}`)
+          .join('\n');
         let prompt = convo + '\nAssistant:';
 
         if (imageId) {
@@ -158,15 +160,11 @@ app.post('/api/send', async (req, res) => {
 
         const isGenImage = text?.toLowerCase().includes('gen image');
         let aiText = '';
-        let assistantImageId = null;
 
         if (isGenImage) {
           const fetch = (await import('node-fetch')).default;
           const imgPrompt = text.replace(/gen image/i, '').trim() || 'AI generated image';
-          const imgResp = await ai.generateImage({
-  prompt: imgPrompt,
-  size: "1024x1024"
-});
+          const imgResp = await ai.generateImage({ prompt: imgPrompt, size: "1024x1024" });
           const imageUrl = imgResp.data[0].url;
           const imgBuffer = Buffer.from(await (await fetch(imageUrl)).arrayBuffer());
           const imgDoc = new Image({
@@ -180,12 +178,25 @@ app.post('/api/send', async (req, res) => {
           aiText = '[Image generated]';
         } else {
           const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const aiResp = await ai.models.generateContent({
-  model,
-  contents: prompt,
-  config: { thinkingConfig: { thinkingBudget: 0 } }
-});
-aiText = aiResp?.text ?? '';}
+
+          // retry 3 ครั้ง
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const aiResp = await ai.models.generateContent({
+                model,
+                contents: prompt,
+                config: { thinkingConfig: { thinkingBudget: 0 } }
+              });
+              aiText = aiResp?.text ?? '';
+              break;
+            } catch (err) {
+              console.error(`AI attempt ${attempt+1} failed:`, err);
+              await new Promise(r => setTimeout(r, 1000));
+            }
+          }
+
+          if (!aiText) aiText = '⚠️ AI temporarily unavailable, please try again later.';
+        }
 
         function sanitizeServerText(s){
           if(!s) return '';

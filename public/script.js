@@ -26,18 +26,15 @@ function beautifyText(s) {
 function formatMarkdown(text) {
   if (!text) return '';
   let html = escapeHtml(text);
-
   html = html.replace(/^## (.*)$/gm, '<h2>$1</h2>');
   html = html.replace(/^# (.*)$/gm, '<h1>$1</h1>');
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
   html = html.replace(/\n{2,}/g, '</p><p>');
   html = html.replace(/\n/g, '<br/>');
-
   return `<p>${html}</p>`;
 }
 
-// render message with code blocks
 function renderMessageHtml(text) {
   let t = text || '';
   const codeBlockRegex = /```([\s\S]*?)```/g;
