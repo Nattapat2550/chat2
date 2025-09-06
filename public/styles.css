@@ -234,3 +234,33 @@ button {
 #removeImageBtn:hover { filter: brightness(1.2); }
 
 .hidden { display: none; }
+
+
+/* ซ่อน input ของจริง */
+#imageInput {
+  display: none;
+}
+
+/* สร้างปุ่มสวย ๆ แทน */
+#imageInput + label {
+  display: inline-block;
+  padding: 10px 20px;
+  background-color: #60a5fa; /* สีฟ้า */
+  color: #fff;
+  font-weight: bold;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+  user-select: none;
+}
+
+/* hover effect */
+#imageInput + label:hover {
+  background-color: #3b82f6;
+}
+
+/* active effect */
+#imageInput:active + label {
+  background-color: #2563eb;
+  transform: scale(0.98);
+}

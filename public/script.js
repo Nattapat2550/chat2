@@ -147,14 +147,16 @@ function renderMessage(m) {
 
   // click to prefill composer
   el.addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    selectedMessageText = m.text || '';
-    if (!selectedMessageText) return;
-    if (confirm('Ask the chat about this message?')) {
-      $('#textInput').value = `Follow up: "${selectedMessageText}"\n\n`;
-      $('#textInput').focus();
-    }
-  });
+  ev.stopPropagation();
+  
+  let selection = window.getSelection().toString().trim(); // ดูว่าผู้ใช้คลุมข้อความ
+  if (!selection) selection = m.text || '';              // ถ้าไม่คลุม ใช้ข้อความทั้งหมด
+  if (!selection) return;
+  
+  
+  $('#textInput').focus();
+  selectedMessageText = selection; // เก็บไว้เผื่อใช้ปุ่ม Ask Selected
+});
 
   $('#messages').appendChild(node);
 }
