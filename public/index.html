@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Gemini Chat</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <h2>Channels</h2>
+      <ul id="channelsList"></ul>
+      <button id="newChannelBtn">+ New</button>
+      <button id="renameBtn">Rename</button>
+      <button id="deleteChannelBtn">Delete</button>
+    </aside>
+
+    <main id="main">
+      <header>
+        <h2 id="channelTitle">Choose a channel</h2>
+      </header>
+
+      <section id="messages"></section>
+
+      <footer>
+        <div id="composer">
+          <textarea id="textInput" placeholder="Type your message..."></textarea>
+          <div id="imagePreview" class="hidden">
+            <img id="previewImg" src="">
+            <span id="uploadProgress"></span>
+            <button id="removeImageBtn">Remove</button>
+          </div>
+          <input type="file" id="imageInput" accept="image/*">
+          <button id="askSelectedBtn">Ask About Selected</button>
+          <button id="sendBtn">Send</button>
+          <span id="sendingIndicator" class="hidden">Sending...</span>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Template -->
+  <template id="messageTemplate">
+    <div class="message">
+      <div class="meta">
+        <span class="role"></span> • <span class="time"></span>
+        <button class="copyBtn">Copy</button>
+      </div>
+      <div class="content"></div>
+    </div>
+  </template>
+
+  <script src="script.js"></script>
+</body>
+</html>
