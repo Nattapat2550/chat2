@@ -1,4 +1,3 @@
-// server.mjs
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import mongoose from 'mongoose';
@@ -28,13 +27,13 @@ if (!MONGODB_URI) {
 }
 await mongoose.connect(MONGODB_URI, {});
 
-// Init Gemini client (it will read GEMINI_API_KEY from env)
+// Init Gemini client
 const ai = new GoogleGenAI({});
 
-// multer memory storage for image buffers
+// multer memory storage
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-// cookie-based user identification (cookie only)
+// cookie-based user identification
 app.use((req, res, next) => {
   let id = req.cookies?.chatUserId;
   if (!id) {
@@ -70,7 +69,6 @@ app.patch('/api/channels/:id', async (req, res) => {
   } else if (op === 'delete') {
     const channel = await Channel.findOneAndDelete({ _id: id, userId: req.chatUserId });
     if (!channel) return res.json({ ok: false });
-    // delete messages and images tied to those messages
     const messages = await Message.find({ channelId: id }).select('imageId').lean();
     const imgIds = messages.map(m => m.imageId).filter(Boolean);
     await Message.deleteMany({ channelId: id });
@@ -81,7 +79,7 @@ app.patch('/api/channels/:id', async (req, res) => {
 });
 
 /* ------------------- Images ------------------- */
-// upload (memory -> MongoDB)
+// upload
 app.post('/api/upload', upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ ok: false, error: 'no-file' });
   const img = new Image({
@@ -94,14 +92,14 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
   res.json({ ok: true, imageId: img._id, filename: img.filename });
 });
 
-// delete uploaded image
+// delete
 app.delete('/api/upload/:id', async (req, res) => {
   const id = req.params.id;
   const img = await Image.findOneAndDelete({ _id: id, userId: req.chatUserId });
   res.json({ ok: !!img });
 });
 
-// serve image for display
+// serve
 app.get('/api/images/:id', async (req, res) => {
   const id = req.params.id;
   const img = await Image.findById(id);
@@ -111,7 +109,7 @@ app.get('/api/images/:id', async (req, res) => {
 });
 
 /* ------------------- Messages ------------------- */
-// get messages for a channel (ascending)
+// get messages
 app.get('/api/messages', async (req, res) => {
   const channelId = req.query.channelId;
   if (!channelId) return res.status(400).json({ ok:false, error:'missing channelId' });
@@ -119,18 +117,12 @@ app.get('/api/messages', async (req, res) => {
   res.json({ ok: true, messages });
 });
 
-/*
-  send message:
-  - store user message
-  - create assistant placeholder (pending: true) and return both to client immediately
-  - AFTER responding, call Gemini in background and update assistant message when done
-*/
+// send message
 app.post('/api/send', async (req, res) => {
   try {
     const { channelId, text, imageId } = req.body;
     if (!channelId) return res.status(400).json({ ok:false, error:'missing channelId' });
 
-    // Save user message
     const userMsg = new Message({
       channelId,
       userId: req.chatUserId,
@@ -141,7 +133,6 @@ app.post('/api/send', async (req, res) => {
     });
     await userMsg.save();
 
-    // create assistant placeholder
     const assistantMsg = new Message({
       channelId,
       userId: req.chatUserId,
@@ -151,13 +142,11 @@ app.post('/api/send', async (req, res) => {
     });
     await assistantMsg.save();
 
-    // respond immediately so client can show "typing" / pending message
     res.json({ ok: true, user: userMsg, assistant: assistantMsg });
 
-    // Background AI call (do not await here)
+    // Background AI
     (async () => {
       try {
-        // Build prompt from latest messages (short context)
         const last = await Message.find({ channelId }).sort({ createdAt: -1 }).limit(10).lean();
         const convo = last.reverse().map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.text || (m.imageId ? '[image]' : '')}`).join('\n');
         let prompt = convo + '\nAssistant:';
@@ -167,37 +156,50 @@ app.post('/api/send', async (req, res) => {
           prompt += `\nUser attached image: ${host}/api/images/${imageId}`;
         }
 
-        // call Gemini via @google/genai
-        const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-        const aiResp = await ai.models.generateContent({
-          model,
-          contents: prompt,
-          // disable "thinking" to reduce time/cost if you want; comment this block to let thinking be used
-          config: {
-            thinkingConfig: {
-              thinkingBudget: 0
-            }
-          }
-        });
+        const isGenImage = text?.toLowerCase().includes('gen image');
+        let aiText = '';
+        let assistantImageId = null;
 
-        // parse text (library returns .text in the quickstart)
-        let aiText = aiResp?.text ?? (aiResp?.candidates && aiResp.candidates[0]?.content) ?? JSON.stringify(aiResp).slice(0, 4000);
+        if (isGenImage) {
+          const fetch = (await import('node-fetch')).default;
+          const imgPrompt = text.replace(/gen image/i, '').trim() || 'AI generated image';
+          const imgResp = await ai.generateImage({
+  prompt: imgPrompt,
+  size: "1024x1024"
+});
+          const imageUrl = imgResp.data[0].url;
+          const imgBuffer = Buffer.from(await (await fetch(imageUrl)).arrayBuffer());
+          const imgDoc = new Image({
+            userId: req.chatUserId,
+            filename: 'generated.png',
+            contentType: 'image/png',
+            data: imgBuffer
+          });
+          await imgDoc.save();
+          assistantMsg.imageId = imgDoc._id;
+          aiText = '[Image generated]';
+        } else {
+          const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const aiResp = await ai.models.generateContent({
+  model,
+  contents: prompt,
+  config: { thinkingConfig: { thinkingBudget: 0 } }
+});
+aiText = aiResp?.text ?? '';}
 
-        // minor beautify (do NOT HTML-escape here; escape in client)
-        function sanitizeServerText(s) {
-          if (!s) return '';
-          return s
-            .replace(/\r\n/g, '\n')
-            .replace(/\t/g, '    ')
-            .replace(/\.{3}/g, '…')
-            .replace(/--/g, '—')
-            .trim();
+        function sanitizeServerText(s){
+          if(!s) return '';
+          return s.replace(/\r\n/g,'\n')
+                  .replace(/\t/g,'    ')
+                  .replace(/\.{3}/g,'…')
+                  .replace(/--/g,'—')
+                  .trim();
         }
-        const safeText = sanitizeServerText(aiText);
 
-        assistantMsg.text = safeText;
+        assistantMsg.text = sanitizeServerText(aiText);
         assistantMsg.pending = false;
         await assistantMsg.save();
+
       } catch (err) {
         console.error('AI background error:', err);
         assistantMsg.text = '⚠️ (AI failed) — please try again later.';

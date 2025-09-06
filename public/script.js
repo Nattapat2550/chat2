@@ -1,7 +1,7 @@
 // ===== Helper =====
 const $ = sel => document.querySelector(sel);
 let currentChannel = null;
-let uploadedImage = null; // { imageId, filename }
+let uploadedImage = null;
 let selectedMessageText = null;
 
 // escape HTML
@@ -22,34 +22,22 @@ function beautifyText(s) {
           .trim();
 }
 
-// ===== Markdown Formatter =====
+// ===== Markdown + Code =====
 function formatMarkdown(text) {
   if (!text) return '';
-
   let html = escapeHtml(text);
 
-  // ## หัวข้อใหญ่
   html = html.replace(/^## (.*)$/gm, '<h2>$1</h2>');
-
-  // # หัวข้อ
   html = html.replace(/^# (.*)$/gm, '<h1>$1</h1>');
-
-  // **ตัวหนา**
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-  // *ตัวเอียง*
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-
-  // ย่อหน้า (แทน \n\n ด้วย <p>)
   html = html.replace(/\n{2,}/g, '</p><p>');
-
-  // แทน \n ปกติด้วย <br/>
   html = html.replace(/\n/g, '<br/>');
 
   return `<p>${html}</p>`;
 }
 
-// render message with code block + markdown
+// render message with code blocks
 function renderMessageHtml(text) {
   let t = text || '';
   const codeBlockRegex = /```([\s\S]*?)```/g;
@@ -84,19 +72,13 @@ async function loadChannels() {
     });
     list.appendChild(li);
   });
-  if (!currentChannel && data.channels.length) {
-    list.firstChild.click();
-  }
+  if (!currentChannel && data.channels.length) list.firstChild.click();
 }
 
 $('#newChannelBtn').addEventListener('click', async () => {
   const name = prompt('Channel name','New Channel');
   if (!name) return;
-  await fetch('/api/channels', { 
-    method:'POST', 
-    headers:{'Content-Type':'application/json'}, 
-    body: JSON.stringify({ name })
-  });
+  await fetch('/api/channels', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name }) });
   await loadChannels();
 });
 
@@ -104,22 +86,14 @@ $('#renameBtn').addEventListener('click', async () => {
   if (!currentChannel) return alert('Pick a channel first');
   const name = prompt('New channel name', currentChannel.name);
   if (!name) return;
-  await fetch(`/api/channels/${currentChannel._id}`, { 
-    method:'PATCH', 
-    headers:{'Content-Type':'application/json'}, 
-    body: JSON.stringify({ op:'rename', name })
-  });
+  await fetch(`/api/channels/${currentChannel._id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ op:'rename', name }) });
   await loadChannels();
 });
 
 $('#deleteChannelBtn').addEventListener('click', async () => {
   if (!currentChannel) return alert('Pick a channel first');
   if (!confirm('Delete this channel and all messages?')) return;
-  await fetch(`/api/channels/${currentChannel._id}`, { 
-    method:'PATCH', 
-    headers:{'Content-Type':'application/json'}, 
-    body: JSON.stringify({ op:'delete' })
-  });
+  await fetch(`/api/channels/${currentChannel._id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ op:'delete' }) });
   currentChannel = null;
   $('#channelTitle').textContent = 'Choose a channel';
   $('#messages').innerHTML = '';
@@ -146,7 +120,7 @@ function renderMessage(m) {
   node.querySelector('.time').textContent = new Date(m.createdAt).toLocaleString();
   const content = node.querySelector('.content');
 
-  // image
+  // image support
   if (m.imageId) {
     const img = document.createElement('img');
     img.src = `/api/images/${m.imageId}`;
@@ -159,13 +133,12 @@ function renderMessage(m) {
   const beaut = beautifyText(m.text || '');
   content.innerHTML += renderMessageHtml(beaut);
 
-  if (m.pending) {
-    const pendingEl = document.createElement('div');
-    pendingEl.className = 'pending';
-    pendingEl.textContent = '...waiting...';
-    content.appendChild(pendingEl);
+  // highlight code blocks
+  if (window.hljs) {
+    content.querySelectorAll('.code-block').forEach(block => hljs.highlightElement(block));
   }
 
+  // copy button
   const copyBtn = node.querySelector('.copyBtn');
   copyBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -175,11 +148,12 @@ function renderMessage(m) {
     setTimeout(() => copyBtn.textContent = 'Copy', 1200);
   });
 
+  // click to prefill composer
   el.addEventListener('click', (ev) => {
     ev.stopPropagation();
     selectedMessageText = m.text || '';
-    if (!selectedMessageText) return alert('No text to use');
-    if (confirm('Ask the chat about this message? (Yes => prefill composer)')) {
+    if (!selectedMessageText) return;
+    if (confirm('Ask the chat about this message?')) {
       $('#textInput').value = `Follow up: "${selectedMessageText}"\n\n`;
       $('#textInput').focus();
     }
@@ -211,31 +185,16 @@ function uploadFile(file) {
   xhr.onload = () => {
     if (xhr.status === 200) {
       const res = JSON.parse(xhr.responseText);
-      if (res.ok) {
-        uploadedImage = { imageId: res.imageId, filename: res.filename };
-        $('#uploadProgress').textContent = `Uploaded: ${uploadedImage.filename}`;
-      } else {
-        $('#uploadProgress').textContent = 'Upload failed';
-      }
-    } else {
-      $('#uploadProgress').textContent = 'Upload failed';
-    }
+      if (res.ok) uploadedImage = { imageId: res.imageId, filename: res.filename };
+      $('#uploadProgress').textContent = res.ok ? `Uploaded: ${res.filename}` : 'Upload failed';
+    } else $('#uploadProgress').textContent = 'Upload failed';
   };
   const fd = new FormData();
   fd.append('image', file);
   xhr.send(fd);
 }
 
-// remove uploaded image
-$('#removeImageBtn').addEventListener('click', async () => {
-  if (uploadedImage) {
-    try {
-      await fetch(`/api/upload/${uploadedImage.imageId}`, { method:'DELETE' });
-    } catch (e) {
-      console.warn("Server delete failed");
-    }
-  }
-  // reset ทุกอย่าง
+$('#removeImageBtn').addEventListener('click', () => {
   uploadedImage = null;
   $('#previewImg').src = '';
   $('#uploadProgress').textContent = '';
@@ -243,13 +202,14 @@ $('#removeImageBtn').addEventListener('click', async () => {
   $('#imageInput').value = '';
 });
 
-// ===== Send =====
+// ===== Ask Selected =====
 $('#askSelectedBtn').addEventListener('click', () => {
   if (!selectedMessageText) return alert('Click a message to select it first');
   $('#textInput').value = `Follow up: "${selectedMessageText}"\n\n`;
   $('#textInput').focus();
 });
 
+// ===== Poll Assistant Until Done =====
 function pollAssistantUntilDone(channelId, assistantId, onDone) {
   let tries = 0;
   const iv = setInterval(async () => {
@@ -267,14 +227,14 @@ function pollAssistantUntilDone(channelId, assistantId, onDone) {
   }, 1500);
 }
 
-// send button handler
-$('#sendBtn').addEventListener('click', async ()=>{
+// ===== Send Message =====
+$('#sendBtn').addEventListener('click', async () => {
   if (!currentChannel) return alert('Choose a channel first');
   const text = $('#textInput').value.trim();
   if (!text && !uploadedImage) return alert('Enter text or attach an image');
 
-  $('#sendingIndicator').classList.remove('hidden');
   $('#sendBtn').disabled = true;
+  $('#sendingIndicator').classList.remove('hidden');
 
   const payload = { 
     channelId: currentChannel._id, 
@@ -283,32 +243,21 @@ $('#sendBtn').addEventListener('click', async ()=>{
   };
 
   try {
-    const res = await fetch('/api/send', { 
-      method:'POST', 
-      headers:{'Content-Type':'application/json'}, 
-      body: JSON.stringify(payload) 
-    });
+    const res = await fetch('/api/send', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
     const data = await res.json();
-
-    if (data.ok){
+    if (data.ok) {
       await loadMessages(currentChannel._id);
-
-      if (data.assistant && data.assistant.pending){
-        pollAssistantUntilDone(currentChannel._id, data.assistant._id, async ()=>{
-          await loadMessages(currentChannel._id);
-        });
+      if (data.assistant && data.assistant.pending) {
+        pollAssistantUntilDone(currentChannel._id, data.assistant._id, async ()=> await loadMessages(currentChannel._id));
       }
-
-      // ✅ clear composer หลังส่งเสร็จ
+      // clear composer
       $('#textInput').value = '';
       uploadedImage = null;
       $('#previewImg').src = '';
       $('#uploadProgress').textContent = '';
       $('#imagePreview').classList.add('hidden');
       $('#imageInput').value = '';
-    } else {
-      alert('Send failed: ' + (data.error || 'unknown'));
-    }
+    } else alert('Send failed: ' + (data.error || 'unknown'));
   } catch (err) {
     console.error(err);
     alert('Error sending message');
